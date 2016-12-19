@@ -46,6 +46,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.regex.*;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
@@ -61,7 +62,6 @@ public class MainActivity extends Activity
     static final int REQUEST_AUTHORIZATION = 1001;
     static final int REQUEST_GOOGLE_PLAY_SERVICES = 1002;
     static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
-
     private static final String BUTTON_TEXT = "Call Gmail API";
     private static final String PREF_ACCOUNT_NAME = "accountName";
     private static final String[] SCOPES = { GmailScopes.MAIL_GOOGLE_COM };
@@ -357,40 +357,87 @@ public class MainActivity extends Activity
          */
         private List<String> getDataFromApi() throws IOException {
             // Get the labels in the user's account.
-            Log.d("", "hello");
             String user = "me";
             List<String> labels = new ArrayList<String>();
+
             ListMessagesResponse listResponse =
                     mService.users().messages().list(user).setQ("is:unread").execute();
 
             for (Message msg : listResponse.getMessages()) {
-                Log.d("", msg.toPrettyString());
-                if (msg.getPayload() != null) {
-                    String filename = msg.getPayload().getFilename();
-                    String attId = msg.getPayload().getBody().getAttachmentId();
-                    String msgId = msg.getId();
-                    Log.d("", "hello");
+                Message message = mService.users().messages().get(user, msg.getId()).execute();
+                
+                markAsRead(message.getId()); 
 
-                    if (filename.toLowerCase().startsWith("togram")) {
-                        MessagePartBody partBody = mService.users().messages().attachments().get(user, msgId, attId).execute();
+                if (message.getPayload() != null) {
+                    List<MessagePart> parts = message.getPayload().getParts();
 
-                        File filesDir = getFilesDir();
-                        Log.d("", filesDir.getAbsolutePath());
-                        if (!filesDir.exists()) {
-                            filesDir.mkdir();
+                    for (MessagePart part: parts) {
+                        String filename = part.getFilename();
+                        String attId = part.getBody().getAttachmentId();
+                        String msgId = message.getId();
+
+                        if (filename != null && filename.length() > 0) {
+                            File filesDir = new File(getFilesDir() + "/pics/");
+
+                            if (filesDir.mkdirs())
+                            {
+                                log("Success creating internal storage directory:");
+                                log(filesDir.getAbsolutePath());
+                            }
+                           
+                            int index = 0;; 
+                            // list the files that are in the directory 
+                            for (String s: filesDir.list())
+                            {
+                                log(s);
+
+                                if (s.startsWith("on"))
+                                {
+                                    File file = new File(filesDir +"/", s);
+                                    file.delete();
+
+                                    Pattern p = Pattern.compile("-?\\d+"); 
+                                    Matcher m = p.matcher(s);
+                                    m.find(); 
+                                    index = Integer.parseInt(m.group());
+                                    
+                                    if (index < 30)
+                                    {
+                                        index = index + 1; 
+                                    }
+                                    else
+                                    {
+                                        index = 0;
+                                    }
+                                    log("We are at index " + Integer.toString(index)); 
+                                }
+                            }
+                            
+                            File file = new File(filesDir, "on" + Integer.toString(index) + ".txt");
+                            file.createNewFile();
+
+                            filename = Integer.toString(index) + filename.substring(filename.indexOf("."));
+                            log("creating a file at " + filename);                         
+
+                            MessagePartBody partBody = mService.users().messages().attachments().get(user, msgId, attId).execute();
+                            
+                            byte[] fileByteArray = Base64.decodeBase64(partBody.getData());
+                            FileOutputStream fileOutFile =
+                                    new FileOutputStream(filesDir.getAbsolutePath() + "/" + filename);
+                            fileOutFile.write(fileByteArray);
+                            fileOutFile.close();
                         }
-
-                        byte[] fileByteArray = Base64.decodeBase64(partBody.getData());
-                        FileOutputStream fileOutFile =
-                                new FileOutputStream(filesDir.getAbsolutePath() + filename);
-                        fileOutFile.write(fileByteArray);
-                        fileOutFile.close();
                     }
                 }
             }
             return labels;
         }
 
+        public void markAsRead(String msgId) throws IOException
+        {
+            ModifyMessageRequest mods = new ModifyMessageRequest().setRemoveLabelIds(Arrays.asList("UNREAD")); 
+            mService.users().messages().modify("me", msgId, mods).execute();
+        }
 
         @Override
         protected void onPreExecute() {
@@ -430,4 +477,10 @@ public class MainActivity extends Activity
             }
         }
     }
+
+    public void log(String msg)
+    {
+        Log.d("MyApp", msg); 
+    }
+
 }
