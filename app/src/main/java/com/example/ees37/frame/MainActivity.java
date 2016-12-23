@@ -89,7 +89,7 @@ public class MainActivity extends Activity
 
         mImageView = (ImageView)findViewById(R.id.image_id);
         //mImageView.setSystemUiVisibility(SYSTEM_UI_FLAG_FULLSCREEN );
-        mImageView.setSystemUiVisibility(SYSTEM_UI_FLAG_IMMERSIVE | SYSTEM_UI_FLAG_HIDE_NAVIGATION | SYSTEM_UI_FLAG_FULLSCREEN );
+        mImageView.setSystemUiVisibility(SYSTEM_UI_FLAG_IMMERSIVE | SYSTEM_UI_FLAG_HIDE_NAVIGATION | SYSTEM_UI_FLAG_FULLSCREEN);
 
         // Initialize credentials and service object.
         mCredential = GoogleAccountCredential.usingOAuth2(
@@ -107,7 +107,7 @@ public class MainActivity extends Activity
                 });
 
             }
-        }, 0, 10000);
+        }, 0, 500000);
 
         new Timer().scheduleAtFixedRate(new TimerTask() {
             @Override
@@ -126,8 +126,8 @@ public class MainActivity extends Activity
 
         if (filesDir.list() != null) {
             for (String s : filesDir.list()) {
-                //File file = new File(filesDir + "/", s);
-               //file.delete();
+                // File file = new File(filesDir + "/", s);
+               // file.delete();
                 if (s.startsWith("switchon")) {
                     File file = new File(filesDir + "/", s);
                     file.delete();
