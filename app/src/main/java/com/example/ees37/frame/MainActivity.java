@@ -25,8 +25,13 @@ import android.app.ProgressDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Environment;
@@ -37,6 +42,7 @@ import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -46,17 +52,23 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.regex.*;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
+import static android.view.View.SYSTEM_UI_FLAG_FULLSCREEN;
+import static android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
+import static android.view.View.SYSTEM_UI_FLAG_IMMERSIVE;
+
 public class MainActivity extends Activity
         implements EasyPermissions.PermissionCallbacks {
     GoogleAccountCredential mCredential;
-    private TextView mOutputText;
-    private Button mCallApiButton;
+    private ImageView mImageView;
     ProgressDialog mProgress;
+
 
     static final int REQUEST_ACCOUNT_PICKER = 1000;
     static final int REQUEST_AUTHORIZATION = 1001;
@@ -73,51 +85,165 @@ public class MainActivity extends Activity
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        LinearLayout activityLayout = new LinearLayout(this);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.MATCH_PARENT);
-        activityLayout.setLayoutParams(lp);
-        activityLayout.setOrientation(LinearLayout.VERTICAL);
-        activityLayout.setPadding(16, 16, 16, 16);
+        setContentView(R.layout.activity_main);
 
-        ViewGroup.LayoutParams tlp = new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT);
-
-        mCallApiButton = new Button(this);
-        mCallApiButton.setText(BUTTON_TEXT);
-        mCallApiButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                mCallApiButton.setEnabled(false);
-                mOutputText.setText("");
-                getResultsFromApi();
-                mCallApiButton.setEnabled(true);
-            }
-        });
-        activityLayout.addView(mCallApiButton);
-
-        mOutputText = new TextView(this);
-        mOutputText.setLayoutParams(tlp);
-        mOutputText.setPadding(16, 16, 16, 16);
-        mOutputText.setVerticalScrollBarEnabled(true);
-        mOutputText.setMovementMethod(new ScrollingMovementMethod());
-        mOutputText.setText(
-                "Click the \'" + BUTTON_TEXT +"\' button to test the API.");
-        activityLayout.addView(mOutputText);
-
-        mProgress = new ProgressDialog(this);
-        mProgress.setMessage("Calling Gmail API ...");
-
-        setContentView(activityLayout);
+        mImageView = (ImageView)findViewById(R.id.image_id);
+        //mImageView.setSystemUiVisibility(SYSTEM_UI_FLAG_FULLSCREEN );
+        mImageView.setSystemUiVisibility(SYSTEM_UI_FLAG_IMMERSIVE | SYSTEM_UI_FLAG_HIDE_NAVIGATION | SYSTEM_UI_FLAG_FULLSCREEN );
 
         // Initialize credentials and service object.
         mCredential = GoogleAccountCredential.usingOAuth2(
                 getApplicationContext(), Arrays.asList(SCOPES))
                 .setBackOff(new ExponentialBackOff());
+
+        new Timer().scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        getResultsFromApi();
+                    }
+                });
+
+            }
+        }, 0, 10000);
+
+        new Timer().scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                changeImage();
+            }
+        }, 0, 8000);
     }
 
+
+    public void changeImage()
+    {
+        File filesDir = new File(getFilesDir(), "/pics/");
+
+        int index = 0, newIndex = 1;
+
+        if (filesDir.list() != null) {
+            for (String s : filesDir.list()) {
+                //File file = new File(filesDir + "/", s);
+               //file.delete();
+                if (s.startsWith("switchon")) {
+                    File file = new File(filesDir + "/", s);
+                    file.delete();
+
+                    Pattern p = Pattern.compile("-?\\d+");
+                    Matcher m = p.matcher(s);
+                    m.find();
+                    index = Integer.parseInt(m.group());
+
+                    if (index < getMaxImage()) {
+                        newIndex = index + 1;
+                    } else {
+                        newIndex = 0;
+                    }
+                }
+            }
+        }
+
+        try {
+            new File(filesDir, "switchon" + Integer.toString(newIndex) + ".txt").createNewFile();
+        }
+        catch (IOException e) {}
+
+        final File dir = filesDir;
+        final int finalIndex = index;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                File file = new File(getImagePath(finalIndex));
+                if (file.exists()) {
+                    try {
+                        ExifInterface exif = new ExifInterface(file.getAbsolutePath());
+                        int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1);
+                        float rotate = 0;
+
+                        if (orientation == 6)
+                        {
+                            rotate = 90;
+                        }
+                        else if (orientation == 3)
+                        {
+                            rotate = 180;
+                        }
+                        else if (orientation == 8)
+                        {
+                            rotate = 270;
+                        }
+
+                        Matrix matrix = new Matrix();
+                        matrix.postRotate(rotate);
+
+                        Bitmap image = BitmapFactory.decodeFile(file.getAbsolutePath());
+
+                        Bitmap rotatedBitmap = Bitmap.createBitmap(image, 0, 0, image.getWidth(), image.getHeight(), matrix, true);
+                        mImageView.setImageBitmap(rotatedBitmap);
+
+                    } catch (IOException e) {}
+
+
+                    //mImageView.setImageURI(Uri.fromFile(file));
+                }
+            }
+        });
+
+        //final Bitmap bmImg = BitmapFactory.decodeFile(getImagePath(index));
+//        runOnUiThread(new Runnable() {
+//            @Override
+//            public void run() {
+//                mImageView.setImageBitmap(bmImg);
+//            }
+//        });
+    }
+
+    public int getMaxImage()
+    {
+        int max = 0;
+        File filesDir = new File(getFilesDir(), "/pics/");
+        for (String s : filesDir.list()) {
+            Pattern p = Pattern.compile("-?\\d+");
+            Matcher m = p.matcher(s);
+            m.find();
+            int index = Integer.parseInt(m.group());
+
+            if (index > max)
+            {
+                max = index;
+            }
+        }
+        return max;
+
+    }
+
+
+    public String getImagePath(int index)
+    {
+        File filesDir = new File(getFilesDir() + "/pics/");
+        String path = "";
+        log("index " + Integer.toString(index));
+        if (filesDir.list() != null) {
+            for (String s : filesDir.list()) {
+                log(s);
+                if (index >= 10 && s.startsWith(Integer.toString(index))) {
+                    path = filesDir.getAbsolutePath() + "/" + s;
+                    log("Image path: " + path);
+                    break;
+                }
+                else if (index < 10 && s.charAt(0) == Integer.toString(index).charAt(0))
+                {
+                    path = filesDir.getAbsolutePath() + "/" + s;
+                    log("Image path: " + path);
+                    break;
+                }
+            }
+        }
+        return path;
+    }
 
 
     /**
@@ -133,7 +259,7 @@ public class MainActivity extends Activity
         } else if (mCredential.getSelectedAccountName() == null) {
             chooseAccount();
         } else if (! isDeviceOnline()) {
-            mOutputText.setText("No network connection available.");
+           // mOutputText.setText("No network connection available.");
         } else {
             new MakeRequestTask(mCredential).execute();
         }
@@ -191,9 +317,9 @@ public class MainActivity extends Activity
         switch(requestCode) {
             case REQUEST_GOOGLE_PLAY_SERVICES:
                 if (resultCode != RESULT_OK) {
-                    mOutputText.setText(
-                            "This app requires Google Play Services. Please install " +
-                                    "Google Play Services on your device and relaunch this app.");
+                    //mOutputText.setText(
+                           // "This app requires Google Play Services. Please install " +
+                             //       "Google Play Services on your device and relaunch this app.");
                 } else {
                     getResultsFromApi();
                 }
@@ -357,16 +483,17 @@ public class MainActivity extends Activity
          */
         private List<String> getDataFromApi() throws IOException {
             // Get the labels in the user's account.
+            log("hello");
             String user = "me";
             List<String> labels = new ArrayList<String>();
 
             ListMessagesResponse listResponse =
                     mService.users().messages().list(user).setQ("is:unread").execute();
-
+            log("hello again");
             for (Message msg : listResponse.getMessages()) {
                 Message message = mService.users().messages().get(user, msg.getId()).execute();
-                
-                markAsRead(message.getId()); 
+                log(message.toString());
+                markAsRead(message.getId());
 
                 if (message.getPayload() != null) {
                     List<MessagePart> parts = message.getPayload().getParts();
@@ -412,20 +539,27 @@ public class MainActivity extends Activity
                                     log("We are at index " + Integer.toString(index)); 
                                 }
                             }
-                            
-                            File file = new File(filesDir, "on" + Integer.toString(index) + ".txt");
-                            file.createNewFile();
+
+
+                            File file = new File(getImagePath(index));
+                            file.delete();
 
                             filename = Integer.toString(index) + filename.substring(filename.indexOf("."));
                             log("creating a file at " + filename);                         
 
                             MessagePartBody partBody = mService.users().messages().attachments().get(user, msgId, attId).execute();
-                            
-                            byte[] fileByteArray = Base64.decodeBase64(partBody.getData());
-                            FileOutputStream fileOutFile =
-                                    new FileOutputStream(filesDir.getAbsolutePath() + "/" + filename);
-                            fileOutFile.write(fileByteArray);
-                            fileOutFile.close();
+
+                            if (filename.toLowerCase().contains("png") || filename.toLowerCase().contains("jpg") || filename.toLowerCase().contains("jpeg")) {
+
+                                byte[] fileByteArray = Base64.decodeBase64(partBody.getData());
+                                FileOutputStream fileOutFile =
+                                        new FileOutputStream(filesDir.getAbsolutePath() + "/" + filename);
+                                fileOutFile.write(fileByteArray);
+                                fileOutFile.close();
+
+                                file = new File(filesDir, "on" + Integer.toString(index) + ".txt");
+                                file.createNewFile();
+                            }
                         }
                     }
                 }
@@ -441,24 +575,24 @@ public class MainActivity extends Activity
 
         @Override
         protected void onPreExecute() {
-            mOutputText.setText("");
-            mProgress.show();
+           // mOutputText.setText("");
+           // mProgress.show();
         }
 
         @Override
         protected void onPostExecute(List<String> output) {
-            mProgress.hide();
+            //mProgress.hide();
             if (output == null || output.size() == 0) {
-                mOutputText.setText("No results returned.");
+              //  mOutputText.setText("No results returned.");
             } else {
                 output.add(0, "Data retrieved using the Gmail API:");
-                mOutputText.setText(TextUtils.join("\n", output));
+               // mOutputText.setText(TextUtils.join("\n", output));
             }
         }
 
         @Override
         protected void onCancelled() {
-            mProgress.hide();
+            //mProgress.hide();
             if (mLastError != null) {
                 if (mLastError instanceof GooglePlayServicesAvailabilityIOException) {
                     showGooglePlayServicesAvailabilityErrorDialog(
@@ -469,18 +603,18 @@ public class MainActivity extends Activity
                             ((UserRecoverableAuthIOException) mLastError).getIntent(),
                             MainActivity.REQUEST_AUTHORIZATION);
                 } else {
-                    mOutputText.setText("The following error occurred:\n"
-                            + mLastError.getMessage());
+                   // mOutputText.setText("The following error occurred:\n"
+                           // + mLastError.getMessage());
                 }
             } else {
-                mOutputText.setText("Request cancelled.");
+               // mOutputText.setText("Request cancelled.");
             }
         }
     }
 
     public void log(String msg)
     {
-        Log.d("MyApp", msg); 
+        //Log.d("MyApp", msg);
     }
 
 }
